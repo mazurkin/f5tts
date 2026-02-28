@@ -17,62 +17,6 @@ import os
 import time
 from pathlib import Path
 
-import torch
-
-# ---------------------------------------------------------------------------
-# Monkey-patch torchaudio.load to use soundfile instead of torchcodec,
-# which has ABI compatibility issues with custom PyTorch builds.
-# ---------------------------------------------------------------------------
-import soundfile as sf
-import torchaudio
-
-
-def _load_via_soundfile(
-    uri, frame_offset=0, num_frames=-1, normalize=True,
-    channels_first=True, format=None, buffer_size=4096, backend=None,
-):
-    stop = None if num_frames == -1 else frame_offset + num_frames
-    data, sr = sf.read(uri, start=frame_offset, stop=stop, dtype="float32", always_2d=True)
-    tensor = torch.from_numpy(data).T if channels_first else torch.from_numpy(data)
-    return tensor, sr
-
-
-torchaudio.load = _load_via_soundfile
-
-# ---------------------------------------------------------------------------
-# Monkey-patch F5-TTS internal transcribe() to use openai-whisper instead of
-# HuggingFace pipeline (which also hits the torchcodec issue).
-# ---------------------------------------------------------------------------
-import whisper as openai_whisper
-import f5_tts.infer.utils_infer as _f5_utils
-
-_whisper_model = None
-_whisper_model_name = "medium"
-
-
-def _transcribe_with_whisper(ref_audio, language=None):
-    """Drop-in replacement for F5-TTS's internal transcribe()."""
-    global _whisper_model
-    if _whisper_model is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"[Whisper] Loading '{_whisper_model_name}' model on {device}...")
-        _whisper_model = openai_whisper.load_model(_whisper_model_name, device=device)
-
-    kwargs = {"fp16": torch.cuda.is_available()}
-    if language:
-        kwargs["language"] = language
-
-    result = _whisper_model.transcribe(ref_audio, **kwargs)
-    text = result["text"].strip()
-    lang = result.get("language", "unknown")
-    print(f"[Whisper] Detected language: {lang}")
-    print(f"[Whisper] Transcript: \"{text}\"")
-    return text
-
-
-# Replace F5-TTS's internal transcribe with ours
-_f5_utils.transcribe = _transcribe_with_whisper
-
 from f5_tts.api import F5TTS
 
 
@@ -178,8 +122,6 @@ def clone_voice_batch(
 
 
 def main():
-    global _whisper_model_name
-
     parser = argparse.ArgumentParser(description="Clone a voice with F5-TTS")
     parser.add_argument("--ref_audio", required=True, help="Path to reference voice audio")
     parser.add_argument("--text", default=None, help="Text to speak in cloned voice")
@@ -191,9 +133,6 @@ def main():
     parser.add_argument("--model", default="F5TTS_v1_Base",
                         choices=["F5TTS_v1_Base", "F5TTS_Base", "E2TTS_Base", "F5TTS_Small", "E2TTS_Small"],
                         help="TTS model name (default: F5TTS_v1_Base)")
-    parser.add_argument("--whisper_model", default="medium",
-                        choices=["tiny", "base", "small", "medium", "large-v3"],
-                        help="Whisper model for auto-transcription (default: medium)")
     parser.add_argument("--speed", type=float, default=1.0, help="Speech speed multiplier (default: 1.0)")
     parser.add_argument("--nfe_step", type=int, default=32,
                         help="Number of ODE solver steps; more = better quality, slower (default: 32)")
@@ -204,8 +143,6 @@ def main():
 
     if not args.text and not args.text_file:
         parser.error("Provide either --text or --text_file")
-
-    _whisper_model_name = args.whisper_model
 
     if args.text_file:
         clone_voice_batch(

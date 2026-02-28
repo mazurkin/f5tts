@@ -17,6 +17,7 @@ declare -r -x PACKAGE_DIR
 export PYTHONDONTWRITEBYTECODE="1"
 export PYTHONUNBUFFERED="1"
 export PYTHONPATH="${PACKAGE_DIR}/src"
+export PYTHONWARNINGS="ignore"
 
 conda run --no-capture-output --live-stream --name f5tts \
     python3 "${PACKAGE_DIR}/src/voice_clone.py" "$@"
