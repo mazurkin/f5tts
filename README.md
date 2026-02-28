@@ -14,7 +14,7 @@ $ make env-init-poetry
 
 ```shell
 bin/voice_clone.sh \
-  --ref_audio "${HOME}/origin.wav" \
+  --ref_audio "work/origin.wav" \
   --text 'Hello World! This is a test of the voice cloning system.' \
   --output output.wav \
   --speed 0.8 \
